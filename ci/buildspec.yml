@@ -3,26 +3,26 @@ env:
   variables:
     AWS_DEFAULT_REGION: "eu-north-1"
     ECR_REPO_NAME: "my-devops-cicd-demo"
+
 phases:
-  pre_build:
-    commands:
-      - echo "Login to ECR"
-      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-      - aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
-      - export NEW_VERSION=$(cat VERSION | tr -d '\n')
-      - echo "Building version: ${NEW_VERSION}"
   build:
     commands:
+      - echo "Login to Amazon ECR"
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
+
+      - echo "Reading version from VERSION file"
+      - NEW_VERSION=$(cat VERSION | tr -d '\n')
       - IMAGE_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO_NAME}:${NEW_VERSION}"
-      - echo "Docker build ${IMAGE_URI}"
+
+      - echo "Building Docker image ${IMAGE_URI}"
       - docker build --build-arg APP_VERSION="${NEW_VERSION}" -t "${IMAGE_URI}" .
+
   post_build:
     commands:
-      - echo "Push ${IMAGE_URI} and :latest"
+      - echo "Pushing ${IMAGE_URI}"
       - docker push "${IMAGE_URI}"
+      - echo "Tagging and pushing latest"
       - LATEST_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO_NAME}:latest"
       - docker tag "${IMAGE_URI}" "${LATEST_URI}"
       - docker push "${LATEST_URI}"
-artifacts:
-  files:
-    - VERSION
