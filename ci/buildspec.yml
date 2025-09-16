@@ -1,26 +1,75 @@
 version: 0.2
+
 env:
   variables:
     AWS_DEFAULT_REGION: "eu-north-1"
     ECR_REPO_NAME: "my-devops-cicd-demo"
+    SSM_PARAMETER_NAME: "/myapp/prod/current_version"
 
 phases:
+  install:
+    runtime-versions:
+      docker: 20
+    commands:
+      - echo Logging in to Amazon ECR...
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+
+  pre_build:
+    commands:
+      - echo Reading new version from VERSION file...
+      - NEW_VERSION=$(cat VERSION | tr -d '\n')
+      - IMAGE_URI="$ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO_NAME:$NEW_VERSION"
+      - echo New image URI: $IMAGE_URI
+
+      - echo Getting previous deployed version from SSM Parameter Store...
+      - PREVIOUS_VERSION=$(aws ssm get-parameter --name "$SSM_PARAMETER_NAME" --query "Parameter.Value" --output text || echo "none")
+      - echo Previous version: $PREVIOUS_VERSION
+
   build:
     commands:
-      - echo "Login to Amazon ECR"
-      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-      - echo "Reading version from VERSION file"
-      - NEW_VERSION=$(cat VERSION | tr -d '\n')
-      - IMAGE_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO_NAME}:${NEW_VERSION}"
-      - echo "Pushing Docker image: ${IMAGE_URI}"
-      - echo "Building Docker image ${IMAGE_URI}"
-      - docker build --build-arg APP_VERSION="${NEW_VERSION}" -t "${IMAGE_URI}" .
+      - echo Building Docker image...
+      - docker build --build-arg APP_VERSION="$NEW_VERSION" -t "$IMAGE_URI" .
+      - echo Pushing Docker image...
+      - docker push "$IMAGE_URI"
+      - LATEST_URI="$ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO_NAME:latest"
+      - docker tag "$IMAGE_URI" "$LATEST_URI"
+      - docker push "$LATEST_URI"
 
   post_build:
     commands:
-      - echo "Pushing ${IMAGE_URI}"
-      - docker push "${IMAGE_URI}"
-      - echo "Tagging and pushing latest"
-      - LATEST_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO_NAME}:latest"
-      - docker tag "${IMAGE_URI}" "${LATEST_URI}"
-      - docker push "${LATEST_URI}"
+      - echo Deploying new version...
+      # Replace this with your deployment command, e.g., updating ECS service with new image
+      - |
+        set -e
+        # Example: Update ECS service with new image
+        # aws ecs update-service --cluster my-cluster --service my-service --force-new-deployment --image "$IMAGE_URI"
+        echo "Simulating deployment..."
+
+      - echo Running deployment health check...
+      # Replace this block with your real health check logic
+      - |
+        HEALTH_CHECK=1  # Simulate failure (0=success, 1=failure)
+        if [ $HEALTH_CHECK -ne 0 ]; then
+          echo "Deployment health check FAILED."
+          echo "Rolling back to previous version..."
+
+          if [ "$PREVIOUS_VERSION" = "none" ]; then
+            echo "No previous version found in SSM, rollback not possible."
+            exit 1
+          fi
+
+          PREVIOUS_IMAGE="$ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO_NAME:$PREVIOUS_VERSION"
+          # Rollback command example (update ECS with previous image)
+          # aws ecs update-service --cluster my-cluster --service my-service --force-new-deployment --image "$PREVIOUS_IMAGE"
+          echo "Simulating rollback to $PREVIOUS_IMAGE"
+
+          exit 1
+        else
+          echo "Deployment health check PASSED."
+
+          # Update SSM Parameter Store with new version
+          aws ssm put-parameter --name "$SSM_PARAMETER_NAME" --value "$NEW_VERSION" --overwrite
+
+          echo "Deployment successful. Updated SSM parameter with new version."
+        fi
