@@ -9,9 +9,9 @@ phases:
     commands:
       - echo "Login to Amazon ECR"
       - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-      - aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
-
+      - IMAGE_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO_NAME}:${NEW_VERSION}"
       - echo "Reading version from VERSION file"
+      - echo "Pushing Docker image: ${IMAGE_URI}"
       - NEW_VERSION=$(cat VERSION | tr -d '\n')
       - IMAGE_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO_NAME}:${NEW_VERSION}"
 
